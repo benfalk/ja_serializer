@@ -259,9 +259,18 @@ defmodule JaSerializer.Serializer do
       end
 
   """
-  defmacro location(uri) do
+  defmacro location(uri) when is_atom(uri) do
     quote bind_quoted: [uri: uri] do
       @location uri
+    end
+  end
+  defmacro location(uri) when is_binary(uri) do
+    alias JaSerializer.Builder.Link
+    link = [location_link: uri]
+
+    quote do
+      @location :location_link
+      unquote(Link.build_functions(link))
     end
   end
 
@@ -366,10 +375,11 @@ defmodule JaSerializer.Serializer do
 
   """
   defmacro has_many(name, opts \\ []) do
-    normalized_opts = normalize_relation_opts(opts, __CALLER__)
+    normalized_opts = normalize_relation_opts(name, opts, __CALLER__)
 
     quote do
       @relations [{:has_many, unquote(name), unquote(normalized_opts)} | @relations]
+      unquote(JaSerializer.Builder.Link.build_functions(normalized_opts[:links_for_parsing] || []))
       unquote(JaSerializer.Relationship.default_function(name, normalized_opts))
     end
   end
@@ -380,15 +390,16 @@ defmodule JaSerializer.Serializer do
   API is the exact same.
   """
   defmacro has_one(name, opts \\ []) do
-    normalized_opts = normalize_relation_opts(opts, __CALLER__)
+    normalized_opts = normalize_relation_opts(name, opts, __CALLER__)
 
     quote do
       @relations [{:has_one, unquote(name), unquote(normalized_opts)} | @relations]
+      unquote(JaSerializer.Builder.Link.build_functions(normalized_opts[:links_for_parsing] || []))
       unquote(JaSerializer.Relationship.default_function(name, normalized_opts))
     end
   end
 
-  defp normalize_relation_opts(opts, caller) do
+  defp normalize_relation_opts(relation, opts, caller) do
     include = opts[:include]
 
     if opts[:field] && !opts[:type] do
@@ -401,10 +412,13 @@ defmodule JaSerializer.Serializer do
     if opts[:link] do
       updated =
         Keyword.get(opts, :links, [])
-          |> Keyword.put_new(:related, opts[:link])
+        |> Keyword.put_new(:related, opts[:link])
 
       opts = Keyword.put(opts, :links, updated)
+      |> Keyword.delete(:link)
     end
+
+    opts = JaSerializer.Builder.Link.flag_links_for_parsing(opts, relation)
 
     case is_boolean(include) or is_nil(include) do
       true -> opts
